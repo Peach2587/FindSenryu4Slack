@@ -1,0 +1,27 @@
+# Slack app manifest for FindSenryu4Slack.
+# Create the app at https://api.slack.com/apps -> "Create New App" -> "From a manifest",
+# pick your workspace, and paste this file.
+display_information:
+  name: FindSenryu
+  description: メッセージから5-7-5の川柳を検出します
+features:
+  bot_user:
+    display_name: FindSenryu
+    always_online: true
+oauth_config:
+  scopes:
+    bot:
+      - channels:history # read messages in public channels the bot is in
+      - groups:history # read messages in private channels the bot is in
+      - chat:write # post the detection reply
+      - channels:read # resolve public channel metadata
+      - groups:read # resolve private channel metadata
+settings:
+  event_subscriptions:
+    bot_events:
+      - message.channels # new messages in public channels
+      - message.groups # new messages in private channels
+  socket_mode_enabled: true
+  org_deploy_enabled: false
+  interactivity:
+    is_enabled: false
