@@ -167,8 +167,8 @@ func (b *bot) handleMessage(m *slackevents.MessageEvent) {
 		return
 	}
 
-	// Reply threaded under the original message. If the message is already in
-	// a thread, reply in that same thread.
+	// Reply threaded under the original message (or in the existing thread),
+	// and broadcast it so the notification is also visible in the channel.
 	threadTS := m.ThreadTimeStamp
 	if threadTS == "" {
 		threadTS = m.TimeStamp
@@ -178,6 +178,9 @@ func (b *bot) handleMessage(m *slackevents.MessageEvent) {
 		m.Channel,
 		slack.MsgOptionText(text, false),
 		slack.MsgOptionTS(threadTS),
+		// Broadcast the threaded reply so it also appears in the channel
+		// timeline, not only inside the thread.
+		slack.MsgOptionBroadcast(),
 		slack.MsgOptionDisableLinkUnfurl(),
 	); err != nil {
 		slog.Warn("failed to post senryu reply", "error", err, "channel", m.Channel)
