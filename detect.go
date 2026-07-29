@@ -97,6 +97,25 @@ func haikuSpansNewline(content, haikuResult string) bool {
 // message to be considered "Japanese-rich" and eligible for senryu detection.
 const japaneseCharRatioThreshold = 0.5
 
+// isJapaneseRune reports whether r is a Japanese script character (Hiragana,
+// Katakana, or Han) or one of the two katakana marks treated as Japanese.
+func isJapaneseRune(r rune) bool {
+	return unicode.In(r, unicode.Hiragana, unicode.Katakana, unicode.Han) ||
+		r == 'ー' || // Katakana long vowel mark (U+30FC)
+		r == '・' // Katakana middle dot (U+30FB)
+}
+
+// countJapanese returns the number of Japanese script characters in s.
+func countJapanese(s string) int {
+	n := 0
+	for _, r := range s {
+		if isJapaneseRune(r) {
+			n++
+		}
+	}
+	return n
+}
+
 // isJapaneseRich reports whether at least japaneseCharRatioThreshold of the
 // non-space characters are Japanese. Ported verbatim from the Discord bot
 // (main.go:855).
@@ -107,9 +126,7 @@ func isJapaneseRich(s string) bool {
 			continue
 		}
 		total++
-		if unicode.In(r, unicode.Hiragana, unicode.Katakana, unicode.Han) ||
-			r == 'ー' || // Katakana long vowel mark (U+30FC)
-			r == '・' { // Katakana middle dot (U+30FB)
+		if isJapaneseRune(r) {
 			jp++
 		}
 	}
@@ -119,25 +136,91 @@ func isJapaneseRich(s string) bool {
 	return float64(jp)/float64(total) >= japaneseCharRatioThreshold
 }
 
-// senryuRule is the 5-7-5 mora pattern.
-var senryuRule = []int{5, 7, 5}
+// coversWholeContent reports whether the matched verse accounts for
+// essentially every Japanese character in content, i.e. the message *is* the
+// verse rather than merely *containing* it. go-haiku's Find joins segments
+// with spaces, so those are stripped before counting.
+func coversWholeContent(content, result string) bool {
+	matched := strings.ReplaceAll(result, " ", "")
+	return countJapanese(matched) >= countJapanese(content)
+}
 
-// DetectSenryu runs the full detection pipeline on a raw Slack message text
-// and returns the matched senryu (segments space-separated, as go-haiku
-// returns it) and true if one is found. It performs no I/O.
-func DetectSenryu(raw string) (string, bool) {
+// PoemKind identifies which Japanese verse form was detected.
+type PoemKind int
+
+const (
+	// KindSenryu is the 5-7-5 form (also senryu/haiku metre).
+	KindSenryu PoemKind = iota
+	// KindTanka is the 5-7-5-7-7 form.
+	KindTanka
+	// KindShichiShichi is the 7-7 lower verse (shimo-no-ku).
+	KindShichiShichi
+)
+
+// Label returns the Japanese name used in the notification message.
+func (k PoemKind) Label() string {
+	switch k {
+	case KindTanka:
+		return "短歌"
+	case KindShichiShichi:
+		return "七七"
+	default:
+		return "川柳"
+	}
+}
+
+// poemRule pairs a verse form with its mora pattern.
+type poemRule struct {
+	kind PoemKind
+	rule []int
+	// wholeOnly requires the match to cover the whole message. It guards the
+	// very short 7-7 form, which otherwise fires on ordinary sentences that
+	// merely contain a 7-7 fragment (e.g. "明日の会議は何時からでしたっけ").
+	wholeOnly bool
+}
+
+// poemRules lists the supported verse forms in detection-precedence order.
+// Order matters: tanka (5-7-5-7-7) contains a 5-7-5 prefix, so it must be
+// tried before senryu or a tanka would be reported as a mere senryu. The 7-7
+// lower verse is tried last because it is the shortest and most permissive
+// pattern, so it should only match when nothing longer does — and only when it
+// spans the whole message (wholeOnly).
+var poemRules = []poemRule{
+	{kind: KindTanka, rule: []int{5, 7, 5, 7, 7}},
+	{kind: KindSenryu, rule: []int{5, 7, 5}},
+	{kind: KindShichiShichi, rule: []int{7, 7}, wholeOnly: true},
+}
+
+// DetectPoem runs the full detection pipeline on a raw Slack message text and
+// returns the matched verse (segments space-separated, as go-haiku returns
+// it), its kind, and true if one is found. Verse forms are tried in
+// poemRules precedence order. It performs no I/O.
+func DetectPoem(raw string) (string, PoemKind, bool) {
 	if containsSlackTokens(raw) {
-		return "", false
+		return "", 0, false
 	}
 	content := stripCodeBlocks(raw)
 	content = stripEmojiShortcodes(content)
 	content = unescapeSlack(content)
 	if !isJapaneseRich(content) {
-		return "", false
+		return "", 0, false
 	}
-	h := findHaikuSafe(content, senryuRule)
-	if len(h) == 0 || haikuSpansNewline(content, h[0]) {
-		return "", false
+	for _, pr := range poemRules {
+		h := findHaikuSafe(content, pr.rule)
+		if len(h) == 0 || haikuSpansNewline(content, h[0]) {
+			continue
+		}
+		if pr.wholeOnly && !coversWholeContent(content, h[0]) {
+			continue
+		}
+		return h[0], pr.kind, true
 	}
-	return h[0], true
+	return "", 0, false
+}
+
+// DetectSenryu is a backwards-compatible wrapper that reports only whether any
+// supported verse form was detected.
+func DetectSenryu(raw string) (string, bool) {
+	poem, _, ok := DetectPoem(raw)
+	return poem, ok
 }

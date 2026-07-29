@@ -156,3 +156,40 @@ func TestDetectSenryu(t *testing.T) {
 		})
 	}
 }
+
+// TestDetectPoem verifies each supported verse form and the precedence between
+// them (a tanka must not be reported as a mere senryu).
+func TestDetectPoem(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		wantOK   bool
+		wantKind PoemKind
+	}{
+		{"senryu 5-7-5", "古池や蛙飛び込む水の音", true, KindSenryu},
+		// Modern tanka; the whole 5-7-5-7-7 must win over its 5-7-5 prefix.
+		{"tanka 5-7-5-7-7", "寒いねと話しかければ寒いねと答える人のいる暖かさ", true, KindTanka},
+		{"shichishichi 7-7", "夏の夕暮れ涼しい風よ", true, KindShichiShichi},
+		{"shichishichi 7-7 other", "月を見ながら酒を飲みたい", true, KindShichiShichi},
+		// Ordinary sentences that contain a 7-7 fragment must NOT match: the
+		// wholeOnly guard requires the 7-7 to span the whole message.
+		{"ordinary sentence with 7-7 fragment", "明日の会議は何時からでしたっけ", false, KindSenryu},
+		{"ordinary sentence with 7-7 fragment 2", "今日のお昼は何を食べようかな", false, KindSenryu},
+		{"not a poem", "今日はいい天気ですね", false, KindSenryu},
+		{"english only", "hello world this is not japanese", false, KindSenryu},
+		{"contains mention", "<@U123> 古池や蛙飛び込む水の音", false, KindSenryu},
+		{"spans newline", "古池や蛙飛びこむ\n水の音", false, KindSenryu},
+		{"empty", "", false, KindSenryu},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, kind, ok := DetectPoem(tt.input)
+			if ok != tt.wantOK {
+				t.Fatalf("DetectPoem(%q) ok = %v, want %v", tt.input, ok, tt.wantOK)
+			}
+			if ok && kind != tt.wantKind {
+				t.Errorf("DetectPoem(%q) kind = %s, want %s", tt.input, kind.Label(), tt.wantKind.Label())
+			}
+		})
+	}
+}

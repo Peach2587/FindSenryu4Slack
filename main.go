@@ -161,9 +161,9 @@ func (b *bot) handleMessage(m *slackevents.MessageEvent) {
 		return
 	}
 
-	senryu, ok := DetectSenryu(m.Text)
+	poem, kind, ok := DetectPoem(m.Text)
 	if !ok {
-		slog.Debug("no senryu detected", "text", m.Text)
+		slog.Debug("no poem detected", "text", m.Text)
 		return
 	}
 
@@ -173,7 +173,7 @@ func (b *bot) handleMessage(m *slackevents.MessageEvent) {
 	if threadTS == "" {
 		threadTS = m.TimeStamp
 	}
-	text := fmt.Sprintf("川柳を検出しました！\n「%s」", senryu)
+	text := fmt.Sprintf("%sを検出しました！\n「%s」", kind.Label(), poem)
 	if _, _, err := b.api.PostMessage(
 		m.Channel,
 		slack.MsgOptionText(text, false),
@@ -183,10 +183,10 @@ func (b *bot) handleMessage(m *slackevents.MessageEvent) {
 		slack.MsgOptionBroadcast(),
 		slack.MsgOptionDisableLinkUnfurl(),
 	); err != nil {
-		slog.Warn("failed to post senryu reply", "error", err, "channel", m.Channel)
+		slog.Warn("failed to post poem reply", "error", err, "channel", m.Channel)
 		return
 	}
-	slog.Info("senryu detected", "channel", m.Channel, "user", m.User, "senryu", senryu)
+	slog.Info("poem detected", "channel", m.Channel, "user", m.User, "kind", kind.Label(), "poem", poem)
 }
 
 // validateTokens checks the two required Slack tokens are present and have the
