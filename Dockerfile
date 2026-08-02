@@ -1,5 +1,9 @@
 # Build stage
-FROM golang:1.26-trixie AS builder
+# Run the builder on the native BUILDPLATFORM and let Go cross-compile to
+# TARGETOS/TARGETARCH, so multi-platform builds don't need QEMU emulation.
+FROM --platform=$BUILDPLATFORM golang:1.26-trixie AS builder
+
+ARG TARGETOS TARGETARCH
 
 WORKDIR /build
 
@@ -9,7 +13,8 @@ RUN go mod download
 COPY . .
 # No CGO in the MVP (kagome + slack-go are pure Go), so we produce a fully
 # static binary that runs on distroless/static.
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o bot .
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
+    go build -trimpath -ldflags="-s -w" -o bot .
 
 # Runtime stage
 FROM gcr.io/distroless/static-debian13:nonroot
